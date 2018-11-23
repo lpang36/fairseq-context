@@ -12,7 +12,8 @@ import os
 from fairseq import options
 from fairseq.data import (
     data_utils, Dictionary, LanguagePairDataset, ConcatDataset,
-    IndexedRawTextDataset, IndexedCachedDataset, IndexedDataset
+    IndexedRawTextDataset, IndexedCachedDataset, IndexedDataset, 
+    LanguagePairWithContextDataset
 )
 
 from . import FairseqTask, register_task
@@ -60,6 +61,8 @@ class TranslationTask(FairseqTask):
                             help='max number of tokens in the target sequence')
         parser.add_argument('--upsample-primary', default=1, type=int,
                             help='amount to upsample primary dataset')
+        parser.add_argument('--use-context',action='store_true',
+                            help='use context in source dataset')
 
     def __init__(self, args, src_dict, tgt_dict):
         super().__init__(args)
@@ -154,14 +157,24 @@ class TranslationTask(FairseqTask):
             src_dataset = ConcatDataset(src_datasets, sample_ratios)
             tgt_dataset = ConcatDataset(tgt_datasets, sample_ratios)
 
-        self.datasets[split] = LanguagePairDataset(
-            src_dataset, src_dataset.sizes, self.src_dict,
-            tgt_dataset, tgt_dataset.sizes, self.tgt_dict,
-            left_pad_source=self.args.left_pad_source,
-            left_pad_target=self.args.left_pad_target,
-            max_source_positions=self.args.max_source_positions,
-            max_target_positions=self.args.max_target_positions,
-        )
+        if (self.args.use_context):
+          self.datasets[split] = LanguagePairWithContextDataset(
+              src_dataset, src_dataset.sizes, self.src_dict,
+              tgt_dataset, tgt_dataset.sizes, self.tgt_dict,
+              left_pad_source=self.args.left_pad_source,
+              left_pad_target=self.args.left_pad_target,
+              max_source_positions=self.args.max_source_positions,
+              max_target_positions=self.args.max_target_positions,
+          )
+        else:
+          self.datasets[split] = LanguagePairDataset(
+              src_dataset, src_dataset.sizes, self.src_dict,
+              tgt_dataset, tgt_dataset.sizes, self.tgt_dict,
+              left_pad_source=self.args.left_pad_source,
+              left_pad_target=self.args.left_pad_target,
+              max_source_positions=self.args.max_source_positions,
+              max_target_positions=self.args.max_target_positions,
+          )
 
     def max_positions(self):
         """Return the max sentence length allowed by the task."""
