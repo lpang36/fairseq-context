@@ -107,6 +107,75 @@ class FConvModel(FairseqModel):
             share_embed=args.share_input_output_embed,
         )
         return FConvModel(encoder, decoder)
+      
+
+@register_model('fconv_context')
+class FConvContextModel(FairseqContextModel):
+  
+    def __init__(self, encoder, decoder):
+        super().__init__(encoder, decoder)
+        self.encoder.num_attention_layers = sum(layer is not None for layer in decoder.attention)
+        
+    @staticmethod
+    def add_args(parser):
+        """Add model-specific arguments to the parser."""
+        parser.add_argument('--dropout', type=float, metavar='D',
+                            help='dropout probability')
+        parser.add_argument('--encoder-embed-dim', type=int, metavar='N',
+                            help='encoder embedding dimension')
+        parser.add_argument('--encoder-embed-path', type=str, metavar='STR',
+                            help='path to pre-trained encoder embedding')
+        parser.add_argument('--encoder-layers', type=str, metavar='EXPR',
+                            help='encoder layers [(dim, kernel_size), ...]')
+        parser.add_argument('--decoder-embed-dim', type=int, metavar='N',
+                            help='decoder embedding dimension')
+        parser.add_argument('--decoder-embed-path', type=str, metavar='STR',
+                            help='path to pre-trained decoder embedding')
+        parser.add_argument('--decoder-layers', type=str, metavar='EXPR',
+                            help='decoder layers [(dim, kernel_size), ...]')
+        parser.add_argument('--decoder-out-embed-dim', type=int, metavar='N',
+                            help='decoder output embedding dimension')
+        parser.add_argument('--decoder-attention', type=str, metavar='EXPR',
+                            help='decoder attention [True, ...]')
+        parser.add_argument('--share-input-output-embed', action='store_true',
+                            help='share input and output embeddings (requires'
+                                 ' --decoder-out-embed-dim and --decoder-embed-dim'
+                                 ' to be equal)')
+        
+    @classmethod
+    def build_model(cls, args, task):
+        base_architecture(args)
+
+        encoder_embed_dict = None
+        if args.encoder_embed_path:
+            encoder_embed_dict = utils.parse_embedding(args.encoder_embed_path)
+            utils.print_embed_overlap(encoder_embed_dict, task.source_dictionary)
+
+        decoder_embed_dict = None
+        if args.decoder_embed_path:
+            decoder_embed_dict = utils.parse_embedding(args.decoder_embed_path)
+            utils.print_embed_overlap(decoder_embed_dict, task.target_dictionary)
+
+        encoder = FConvContextEncoder(
+            dictionary=task.source_dictionary,
+            embed_dim=args.encoder_embed_dim,
+            embed_dict=encoder_embed_dict,
+            convolutions=eval(args.encoder_layers),
+            dropout=args.dropout,
+            max_positions=args.max_source_positions,
+        )
+        decoder = FConvDecoder(
+            dictionary=task.target_dictionary,
+            embed_dim=args.decoder_embed_dim,
+            embed_dict=decoder_embed_dict,
+            convolutions=eval(args.decoder_layers),
+            out_embed_dim=args.decoder_out_embed_dim,
+            attention=eval(args.decoder_attention),
+            dropout=args.dropout,
+            max_positions=args.max_target_positions,
+            share_embed=args.share_input_output_embed,
+        )
+        return FConvModel(encoder, decoder)
 
 
 @register_model('fconv_lm')
@@ -329,15 +398,46 @@ class FConvEncoder(FairseqEncoder):
     def max_positions(self):
         """Maximum input length supported by the encoder."""
         return self.embed_positions.max_positions()
+      
 
+class FConvContextEncoder(FairseqEncoder):
+  
+    def __init__(
+            self, dictionary, embed_dim=512, embed_dict=None, max_positions=1024,
+            convolutions=((512, 3),) * 20, dropout=0.1, left_pad=True,
+    ):
+        self.input_encoder = FConvEncoder(dictionary,embed_dim,embed_dict,max_positions,convolutions,dropout,left_pad)
+        self.context_encoder = FConvEncoder(dictionary,embed_dim,embed_dict,max_positions,convolutions,dropout,left_pad,True)
+        
+    def forward(self, src_tokens, src_lengths, ctx_tokens, ctx_lengths):
+        src_output = self.input_encoder.forward(src_tokens,src_lengths)
+        ctx_output = self.context_encoder.forward(src_tokens,src_lengths)
+        return {
+          'encoder_out': (torch.cat((src_output['encoder_out'][0],ctx_output['encoder_out'][0]),2),
+                          torch.cat((src_output['encoder_out'][1],ctx_output['encoder_out'][1]),2)),
+          'encoder_padding_mask': torch.cat((src_output['encoder_padding_mask'],ctx_output['encoder_padding_mask']),2)
+        }
+   
+    def reorder_encoder_out(self, encoder_out, new_order):
+        if encoder_out['encoder_out'] is not None:
+            encoder_out['encoder_out'] = (
+                encoder_out['encoder_out'][0].index_select(0, new_order),
+                encoder_out['encoder_out'][1].index_select(0, new_order),
+            )
+        if encoder_out['encoder_padding_mask'] is not None:
+            encoder_out['encoder_padding_mask'] = \
+                encoder_out['encoder_padding_mask'].index_select(0, new_order)
+        return encoder_out
+    
 
 class AttentionLayer(nn.Module):
-    def __init__(self, conv_channels, embed_dim, bmm=None):
+    def __init__(self, conv_channels, embed_dim, bmm=None, use_context=False):
         super().__init__()
+        context_coeff = 2 if use_context else 1
         # projects from output of convolution to embedding dimension
-        self.in_projection = Linear(conv_channels, embed_dim)
+        self.in_projection = Linear(conv_channels, context_coeff*embed_dim)
         # projects from embedding dimension to convolution size
-        self.out_projection = Linear(embed_dim, conv_channels)
+        self.out_projection = Linear(context_coeff*embed_dim, conv_channels)
 
         self.bmm = bmm if bmm is not None else torch.bmm
 
@@ -391,7 +491,7 @@ class FConvDecoder(FairseqIncrementalDecoder):
             max_positions=1024, convolutions=((512, 3),) * 20, attention=True,
             dropout=0.1, share_embed=False, positional_embeddings=True,
             adaptive_softmax_cutoff=None, adaptive_softmax_dropout=0,
-            left_pad=False,
+            left_pad=False, use_context=False,
     ):
         super().__init__(dictionary)
         self.register_buffer('version', torch.Tensor([2]))
@@ -439,7 +539,7 @@ class FConvDecoder(FairseqIncrementalDecoder):
                 LinearizedConv1d(in_channels, out_channels * 2, kernel_size,
                                  padding=(kernel_size - 1), dropout=dropout)
             )
-            self.attention.append(AttentionLayer(out_channels, embed_dim)
+            self.attention.append(AttentionLayer(out_channels, embed_dim, use_context)
                                   if attention[i] else None)
             self.residuals.append(residual)
             in_channels = out_channels

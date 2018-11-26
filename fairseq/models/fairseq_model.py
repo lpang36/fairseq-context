@@ -167,6 +167,7 @@ class FairseqModel(BaseFairseqModel):
         """Maximum length supported by the model."""
         return (self.encoder.max_positions(), self.decoder.max_positions())
       
+      
 class FairseqContextModel(FairseqModel):
     """Base class for encoder-decoder models with context."""
     def forward(self, src_tokens, src_lengths, ctx_tokens, ctx_lengths, prev_output_tokens):
