@@ -176,7 +176,7 @@ class FConvContextModel(FairseqContextModel):
             max_positions=args.max_target_positions,
             share_embed=args.share_input_output_embed,
         )
-        return FConvModel(encoder, decoder)
+        return FConvContextModel(encoder, decoder)
 
 
 @register_model('fconv_lm')
@@ -407,8 +407,9 @@ class FConvContextEncoder(FairseqEncoder):
             self, dictionary, embed_dim=512, embed_dict=None, max_positions=1024,
             convolutions=((512, 3),) * 20, dropout=0.1, left_pad=True,
     ):
+        super(FConvContextEncoder,self).__init__(dictionary)
         self.input_encoder = FConvEncoder(dictionary,embed_dim,embed_dict,max_positions,convolutions,dropout,left_pad)
-        self.context_encoder = FConvEncoder(dictionary,embed_dim,embed_dict,max_positions,convolutions,dropout,left_pad,True)
+        self.context_encoder = FConvEncoder(dictionary,embed_dim,embed_dict,max_positions,convolutions,dropout,left_pad)
         
     def set_num_attention_layers(num_attention_layers):
         self.input_encoder.num_attention_layers = num_attention_layers
