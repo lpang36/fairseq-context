@@ -18,7 +18,8 @@ from fairseq.modules import (
 
 from . import (
     FairseqEncoder, FairseqIncrementalDecoder, FairseqModel,
-    FairseqLanguageModel, register_model, register_model_architecture,
+    FairseqLanguageModel, FairseqContextModel, register_model, 
+    register_model_architecture,
 )
 
 
@@ -539,7 +540,7 @@ class FConvDecoder(FairseqIncrementalDecoder):
                 LinearizedConv1d(in_channels, out_channels * 2, kernel_size,
                                  padding=(kernel_size - 1), dropout=dropout)
             )
-            self.attention.append(AttentionLayer(out_channels, embed_dim, use_context)
+            self.attention.append(AttentionLayer(out_channels, embed_dim, None, use_context)
                                   if attention[i] else None)
             self.residuals.append(residual)
             in_channels = out_channels
@@ -847,4 +848,8 @@ def fconv_wmt_en_fr(args):
     args.decoder_embed_dim = getattr(args, 'decoder_embed_dim', 768)
     args.decoder_layers = getattr(args, 'decoder_layers', convs)
     args.decoder_out_embed_dim = getattr(args, 'decoder_out_embed_dim', 512)
+    base_architecture(args)
+
+@register_model_architecture('fconv_context','fconv_context')
+def base_fconv_context(args):
     base_architecture(args)
