@@ -106,26 +106,16 @@ class LanguagePairWithContextDataset(LanguagePairDataset):
 
     def __init__(*args, **kwargs):
         super(LanguagePairWithContextDataset,self).__init__(*args, **kwargs)
-        new_src_datasets = []
-        new_ctx_datasets = []
-        new_src_sizes = []
-        new_ctx_sizes = []
-        for i,src_tensor in enumerate(self.src):
-          for j,token in enumerate(src_tensor):
-            if token==self.src_dict.ctx():
-              new_src_datasets.append([src_tensor[:j]])
-              new_ctx_datasets.append([src_tensor[(j+1):]])
-              new_src_sizes.append(j)
-              new_ctx_sizes.append(len(src_tensor)-j-1)
-        self.src = ConcatDataset(new_src_datasets)
-        self.ctx = ConcatDataset(new_ctx_datasets)
-        self.src_sizes = np.array(new_src_sizes)
-        self.ctx_sizes = np.array(new_ctx_sizes)
 
     def __getitem__(self, index):
         tgt_item = self.tgt[index] if self.tgt is not None else None
         src_item = self.src[index]
-        ctx_item = self.ctx[index]
+        
+        for i,token in enumerate(src_item):
+          if token == self.src_dict.ctx():
+            ctx_item = src_item[(i+1):]
+            src_item = src_item[:i]
+        
         # Append EOS to end of tgt sentence if it does not have an EOS and remove
         # EOS from end of src sentence if it exists. This is useful when we use
         # use existing datasets for opposite directions i.e., when we want to
@@ -208,7 +198,6 @@ class LanguagePairWithContextDataset(LanguagePairDataset):
     def prefetch(self, indices):
         self.src.prefetch(indices)
         self.tgt.prefetch(indices)
-        self.ctx.prefetch(indices)
 
     @property
     def supports_prefetch(self):
@@ -217,6 +206,4 @@ class LanguagePairWithContextDataset(LanguagePairDataset):
             and self.src.supports_prefetch
             and hasattr(self.tgt, 'supports_prefetch')
             and self.tgt.supports_prefetch
-            and hasattr(self.ctx, 'supports_prefetch')
-            and self.ctx.supports_prefetch
         )
