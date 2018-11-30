@@ -176,7 +176,7 @@ class FConvContextModel(FairseqContextModel):
             max_positions=args.max_target_positions,
             share_embed=args.share_input_output_embed,
         )
-        return FConvModel(encoder, decoder)
+        return FConvContextModel(encoder, decoder)
 
 
 @register_model('fconv_lm')
