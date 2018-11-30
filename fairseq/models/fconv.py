@@ -115,7 +115,7 @@ class FConvContextModel(FairseqContextModel):
   
     def __init__(self, encoder, decoder):
         super().__init__(encoder, decoder)
-        self.encoder.num_attention_layers = sum(layer is not None for layer in decoder.attention)
+        self.encoder.set_num_attention_layers(sum(layer is not None for layer in decoder.attention))
         
     @staticmethod
     def add_args(parser):
@@ -409,6 +409,10 @@ class FConvContextEncoder(FairseqEncoder):
     ):
         self.input_encoder = FConvEncoder(dictionary,embed_dim,embed_dict,max_positions,convolutions,dropout,left_pad)
         self.context_encoder = FConvEncoder(dictionary,embed_dim,embed_dict,max_positions,convolutions,dropout,left_pad,True)
+        
+    def set_num_attention_layers(num_attention_layers):
+        self.input_encoder.num_attention_layers = num_attention_layers
+        self.context_encoder.num_attention_layers = num_attention_layers
         
     def forward(self, src_tokens, src_lengths, ctx_tokens, ctx_lengths):
         src_output = self.input_encoder.forward(src_tokens,src_lengths)
