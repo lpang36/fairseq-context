@@ -407,8 +407,9 @@ class FConvContextEncoder(FairseqEncoder):
             self, dictionary, embed_dim=512, embed_dict=None, max_positions=1024,
             convolutions=((512, 3),) * 20, dropout=0.1, left_pad=True,
     ):
+        super(FConvContextEncoder,self).__init__(dictionary)
         self.input_encoder = FConvEncoder(dictionary,embed_dim,embed_dict,max_positions,convolutions,dropout,left_pad)
-        self.context_encoder = FConvEncoder(dictionary,embed_dim,embed_dict,max_positions,convolutions,dropout,left_pad,True)
+        self.context_encoder = FConvEncoder(dictionary,embed_dim,embed_dict,max_positions,convolutions,dropout,left_pad)
         
     def forward(self, src_tokens, src_lengths, ctx_tokens, ctx_lengths):
         src_output = self.input_encoder.forward(src_tokens,src_lengths)
