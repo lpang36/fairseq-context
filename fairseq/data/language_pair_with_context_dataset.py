@@ -10,7 +10,7 @@ import torch
 
 from fairseq import utils
 
-from . import data_utils, FairseqDataset, ConcatDataset
+from . import data_utils, FairseqDataset, ConcatDataset, LanguagePairDataset
 
 
 def collate(
@@ -104,7 +104,7 @@ class LanguagePairWithContextDataset(LanguagePairDataset):
             target if it's absent. Default: ``False``
     """
 
-    def __init__(*args, **kwargs):
+    def __init__(self, *args, **kwargs):
         super(LanguagePairWithContextDataset,self).__init__(*args, **kwargs)
 
     def __getitem__(self, index):
