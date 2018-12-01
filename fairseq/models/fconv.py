@@ -175,6 +175,7 @@ class FConvContextModel(FairseqContextModel):
             dropout=args.dropout,
             max_positions=args.max_target_positions,
             share_embed=args.share_input_output_embed,
+            use_context=True
         )
         return FConvContextModel(encoder, decoder)
 
@@ -411,17 +412,21 @@ class FConvContextEncoder(FairseqEncoder):
         self.input_encoder = FConvEncoder(dictionary,embed_dim,embed_dict,max_positions,convolutions,dropout,left_pad)
         self.context_encoder = FConvEncoder(dictionary,embed_dim,embed_dict,max_positions,convolutions,dropout,left_pad)
         
-    def set_num_attention_layers(num_attention_layers):
+    def set_num_attention_layers(self, num_attention_layers):
         self.input_encoder.num_attention_layers = num_attention_layers
         self.context_encoder.num_attention_layers = num_attention_layers
         
     def forward(self, src_tokens, src_lengths, ctx_tokens, ctx_lengths):
         src_output = self.input_encoder.forward(src_tokens,src_lengths)
         ctx_output = self.context_encoder.forward(src_tokens,src_lengths)
+        if src_output['encoder_padding_mask'] is None or ctx_output['encoder_padding_mask'] is None:
+            encoder_padding_mask = None
+        else:
+            encoder_padding_mask = src_output['encoder_padding_mask']*ctx_output['encoder_padding_mask']
         return {
-          'encoder_out': (torch.cat((src_output['encoder_out'][0],ctx_output['encoder_out'][0]),2),
-                          torch.cat((src_output['encoder_out'][1],ctx_output['encoder_out'][1]),2)),
-          'encoder_padding_mask': torch.cat((src_output['encoder_padding_mask'],ctx_output['encoder_padding_mask']),2)
+          'encoder_out': (torch.cat([src_output['encoder_out'][0],ctx_output['encoder_out'][0]],2),
+                          torch.cat([src_output['encoder_out'][1],ctx_output['encoder_out'][1]],2)),
+          'encoder_padding_mask': encoder_padding_mask
         }
    
     def reorder_encoder_out(self, encoder_out, new_order):
@@ -439,19 +444,25 @@ class FConvContextEncoder(FairseqEncoder):
 class AttentionLayer(nn.Module):
     def __init__(self, conv_channels, embed_dim, bmm=None, use_context=False):
         super().__init__()
-        context_coeff = 2 if use_context else 1
         # projects from output of convolution to embedding dimension
-        self.in_projection = Linear(conv_channels, context_coeff*embed_dim)
+        self.in_projection = Linear(conv_channels, embed_dim)
         # projects from embedding dimension to convolution size
-        self.out_projection = Linear(context_coeff*embed_dim, conv_channels)
+        self.out_projection = Linear(embed_dim, conv_channels)
+
+        if use_context:
+            self.double_projection = Linear(embed_dim,2*embed_dim)
+            self.half_projection = Linear(2*embed_dim,embed_dim)
 
         self.bmm = bmm if bmm is not None else torch.bmm
+        self.use_context = use_context
 
     def forward(self, x, target_embedding, encoder_out, encoder_padding_mask):
         residual = x
 
         # attention
         x = (self.in_projection(x) + target_embedding) * math.sqrt(0.5)
+        if self.use_context:
+             x = self.double_projection(x)
         x = self.bmm(x, encoder_out[0])
 
         # don't attend over padding
@@ -479,6 +490,8 @@ class AttentionLayer(nn.Module):
             x = x * (s * s.rsqrt())
 
         # project back
+        if self.use_context:
+            x = self.half_projection(x)
         x = (self.out_projection(x) + residual) * math.sqrt(0.5)
         return x, attn_scores
 

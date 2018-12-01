@@ -221,6 +221,8 @@ class LanguagePairDataset(FairseqDataset):
         else:
             indices = np.arange(len(self))
         if self.tgt_sizes is not None:
+            print(len(self))
+            print(len(self.tgt))
             indices = indices[np.argsort(self.tgt_sizes[indices], kind='mergesort')]
         return indices[np.argsort(self.src_sizes[indices], kind='mergesort')]
 

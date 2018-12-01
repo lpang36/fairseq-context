@@ -115,6 +115,7 @@ class LanguagePairWithContextDataset(LanguagePairDataset):
           if token == self.src_dict.ctx():
             ctx_item = src_item[(i+1):]
             src_item = src_item[:i]
+            break
         
         # Append EOS to end of tgt sentence if it does not have an EOS and remove
         # EOS from end of src sentence if it exists. This is useful when we use
