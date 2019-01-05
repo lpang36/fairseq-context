@@ -332,6 +332,11 @@ class FConvEncoder(FairseqEncoder):
 
         # used to mask padding in input
         encoder_padding_mask = src_tokens.eq(self.padding_idx).t()  # -> T x B
+        t1 = encoder_padding_mask.eq(0)
+        t2 = encoder_padding_mask.eq(1)
+        t3 = t1+t2
+        t3 = t3.eq(0)
+        print(t3.sum())
         if not encoder_padding_mask.any():
             encoder_padding_mask = None
 

@@ -110,7 +110,8 @@ class LanguagePairWithContextDataset(LanguagePairDataset):
     def __getitem__(self, index):
         tgt_item = self.tgt[index] if self.tgt is not None else None
         src_item = self.src[index]
-        
+        ctx_item = src_item
+
         for i,token in enumerate(src_item):
           if token == self.src_dict.ctx():
             ctx_item = src_item[(i+1):]
