@@ -323,7 +323,9 @@ class FConvEncoder(FairseqEncoder):
                   padding elements of shape `(batch, src_len)`
         """
         # embed tokens and positions
-        x = self.embed_tokens(src_tokens) + self.embed_positions(src_tokens)
+        m1 = self.embed_tokens(src_tokens)
+        m2 = self.embed_positions(src_tokens)
+        x = m1+m2
         x = F.dropout(x, p=self.dropout, training=self.training)
         input_embedding = x
 
@@ -332,11 +334,6 @@ class FConvEncoder(FairseqEncoder):
 
         # used to mask padding in input
         encoder_padding_mask = src_tokens.eq(self.padding_idx).t()  # -> T x B
-        t1 = encoder_padding_mask.eq(0)
-        t2 = encoder_padding_mask.eq(1)
-        t3 = t1+t2
-        t3 = t3.eq(0)
-        print(t3.sum())
         if not encoder_padding_mask.any():
             encoder_padding_mask = None
 
@@ -445,6 +442,8 @@ class FConvContextEncoder(FairseqEncoder):
                 encoder_out['encoder_padding_mask'].index_select(0, new_order)
         return encoder_out
     
+    def max_positions(self):
+        return max(self.input_encoder.max_positions(),self.context_encoder.max_positions())
 
 class AttentionLayer(nn.Module):
     def __init__(self, conv_channels, embed_dim, bmm=None, use_context=False):
