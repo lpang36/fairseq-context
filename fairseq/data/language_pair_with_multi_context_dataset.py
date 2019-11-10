@@ -149,11 +149,9 @@ class LanguagePairWithMultiContextDataset(LanguagePairDataset):
         leaf_item = self.leaf[index]
         path_item = self.path[index]
 
-        start_leaf_item, end_leaf_item = leaf_item, leaf_item
-        for i, token in enumerate(leaf_item):
-            if token == self.leaf_dict.leaf():
-                start_leaf_item = leaf_item[:i]
-                end_leaf_item = leaf_item[(i+1):]
+        ind = torch.nonzero(leaf_item == self.leaf_dict.leaf())[0]
+        start_leaf_item = leaf_item[:ind]
+        end_leaf_item = leaf_item[(ind+1):]
 
         # Append EOS to end of tgt sentence if it does not have an EOS and remove
         # EOS from end of src sentence if it exists. This is useful when we use
