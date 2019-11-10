@@ -13,12 +13,16 @@ from multiprocessing import Pool
 
 SPACE_NORMALIZER = re.compile(r"\s+")
 
-
 def tokenize_line(line):
     line = SPACE_NORMALIZER.sub(" ", line)
     line = line.strip()
     return line.split()
 
+def tokenize_nested_line(line):
+    line = SPACE_NORMALIZER.sub(" ", line)
+    line = line.strip()
+    joined = ' <path> '.join([' '.join(item.split('|')) for item in line])
+    return joined.split()
 
 def safe_readline(f):
     pos = f.tell()

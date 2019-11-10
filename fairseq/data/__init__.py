@@ -13,6 +13,7 @@ from .concat_dataset import ConcatDataset
 from .indexed_dataset import IndexedDataset, IndexedCachedDataset, IndexedInMemoryDataset, IndexedRawTextDataset
 from .language_pair_dataset import LanguagePairDataset
 from .language_pair_with_context_dataset import LanguagePairWithContextDataset
+from .language_pair_with_multi_context_dataset import LanguagePairWithMultiContextDataset
 from .monolingual_dataset import MonolingualDataset
 from .round_robin_zip_datasets import RoundRobinZipDatasets
 from .token_block_dataset import TokenBlockDataset
@@ -39,6 +40,7 @@ __all__ = [
     'IndexedRawTextDataset',
     'LanguagePairDataset',
     'LanguagePairWithContextDataset',
+    'LanguagePairWithMultiContextDataset',
     'MonolingualDataset',
     'RoundRobinZipDatasets',
     'ShardedIterator',

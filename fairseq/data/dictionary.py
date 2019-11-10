@@ -13,8 +13,8 @@ import torch
 
 class Dictionary(object):
     """A mapping from symbols to consecutive integers"""
-    def __init__(self, pad='<pad>', eos='</s>', unk='<unk>', ctx='<ctx>'):
-        self.unk_word, self.pad_word, self.eos_word, self.ctx_word = unk, pad, eos, ctx
+    def __init__(self, pad='<pad>', eos='</s>', unk='<unk>', ctx='<ctx>', path='<path>'):
+        self.unk_word, self.pad_word, self.eos_word, self.ctx_word, self.path_word = unk, pad, eos, ctx, path
         self.symbols = []
         self.count = []
         self.indices = {}
@@ -24,6 +24,7 @@ class Dictionary(object):
         self.eos_index = self.add_symbol(eos)
         self.unk_index = self.add_symbol(unk)
         self.ctx_index = self.add_symbol(ctx)
+        self.path_index = self.add_symbol(path)
         self.nspecial = len(self.symbols)
 
     def __eq__(self, other):
@@ -152,10 +153,14 @@ class Dictionary(object):
     def unk(self):
         """Helper to get index of unk symbol"""
         return self.unk_index
-      
+
     def ctx(self):
         """Helper to get index of ctx symbol"""
         return self.ctx_index
+
+    def path(self):
+        """Helper to get index of path symbol"""
+        return self.path_index
 
     @classmethod
     def load(cls, f, ignore_utf_errors=False):

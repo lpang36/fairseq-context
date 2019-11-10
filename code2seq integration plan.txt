@@ -6,7 +6,7 @@ train test val
 ->
 
 train test val
-trg (space delim) src (space delim) leaf (space delim (| delim)) path (space delim (| delim))
+trg (space delim) src (space delim) leaf (<path> delim (space delim)) path (<path> delim (space delim))
 
 -modify fairseq/tokenizer.py to add a tokenizer which splits by both space and |
 -in preprocess.py use --joined-dictionary for src and trg, add an option to use the new tokenizer and use --only-source to process leaf and path
@@ -15,6 +15,7 @@ trg (space delim) src (space delim) leaf (space delim (| delim)) path (space del
 
 dicts for trg/src leaf path
 
+-add <path> token equivalent to <context> token
 -add an equivalent to translation task under fairseq/tasks which also takes leaf and path files
 -add an equivalent to LanguagePairWithContextDataset under fairseq/data which also takes leaf and path datasets
 -under load_dataset add indexed_dataset calls for leaf and path and feed the result to the new dataset type
@@ -22,3 +23,10 @@ dicts for trg/src leaf path
 -add an equivalent to FairseqContextModel in fairseq/models/fairseq_model.py
 -add an equivalent to FConvContextModel and FConvContextEncoder in fairseq/models/fconv.py (keep concatenation logic)
 -add a custom encoder under fairseq/models which will implement code2seq
+
+TODO: 
+-naming convention for source only dicts/data files, as well as joint dicts
+-max # of tokens might cut off paths
+-figure out reason why samples are sorted by descending source length in collate function
+-figure out if some additional connection is needed between task/dataset and model to adjust forward args
+-required tensor format for inputting paths
