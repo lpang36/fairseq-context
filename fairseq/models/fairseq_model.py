@@ -198,8 +198,8 @@ class FairseqMultiContextModel(BaseFairseqModel):
         assert isinstance(self.encoder, FairseqEncoder)
         assert isinstance(self.decoder, FairseqDecoder)
 
-    def forward(self, src_tokens, src_lengths, leaf_tokens, leaf_lengths, path_tokens, path_lengths, prev_output_tokens):
-        encoder_out = self.encoder(src_tokens, src_lengths, leaf_tokens, leaf_lengths)
+    def forward(self, src_tokens, src_lengths, start_leaf_tokens, start_leaf_lengths, end_leaf_tokens, end_leaf_lengths, path_tokens, path_lengths, prev_output_tokens):
+        encoder_out = self.encoder(src_tokens, src_lengths, start_leaf_tokens, start_leaf_lengths, end_leaf_tokens, end_leaf_lengths)
         decoder_out = self.decoder(prev_output_tokens, encoder_out)
         return decoder_out
 

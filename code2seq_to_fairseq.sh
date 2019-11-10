@@ -13,5 +13,5 @@ VALIDPREF=$TARGET_DIR/val
 TESTPREF=$TARGET_DIR/test
 
 python preprocess.py --source-lang src --target-lang trg --trainpref $TRAINPREF --validpref $VALIDPREF --testpref $TESTPREF --destdir $TARGET_DIR/bin --joined-dictionary --workers 10
-python preprocess.py --source-lang leaf --source-only --trainpref $TRAINPREF --validpref $VALIDPREF --testpref $TESTPREF --destdir $TARGET_DIR/bin --workers 10 --nested-line
-python preprocess.py --source-lang path --source-only --trainpref $TRAINPREF --validpref $VALIDPREF --testpref $TESTPREF --destdir $TARGET_DIR/bin --workers 10 --nested-line
+python preprocess.py --source-lang leaf --source-only --trainpref $TRAINPREF --validpref $VALIDPREF --testpref $TESTPREF --destdir $TARGET_DIR/bin --workers 10 --leaf-line
+python preprocess.py --source-lang path --source-only --trainpref $TRAINPREF --validpref $VALIDPREF --testpref $TESTPREF --destdir $TARGET_DIR/bin --workers 10 --path-line

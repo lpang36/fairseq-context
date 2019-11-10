@@ -17,7 +17,7 @@ import shutil
 
 
 from fairseq.data import indexed_dataset, dictionary
-from fairseq.tokenizer import Tokenizer, tokenize_line, tokenize_nested_line
+from fairseq.tokenizer import Tokenizer, tokenize_line, tokenize_leaf_line, tokenize_path_line
 from multiprocessing import Pool, Manager, Process
 
 
@@ -107,7 +107,10 @@ def get_parser():
         "--workers", metavar="N", default=1, type=int, help="number of parallel workers"
     )
     parser.add_argument(
-        "--nested-line", action="store_true"
+        "--leaf-line", action="store_true"
+    )
+    parser.add_argument(
+        "--path-line", action="store_true"
     )
     return parser
 
@@ -116,6 +119,8 @@ def main(args):
     print(args)
     os.makedirs(args.destdir, exist_ok=True)
     target = not args.only_source
+
+    line_type = 2 if args.path_line else 1 if args.leaf_line else 0
 
     def train_path(lang):
         return "{}{}".format(args.trainpref, ("." + lang) if lang else "")
@@ -138,7 +143,7 @@ def main(args):
         src_dict = build_dictionary(
             {train_path(lang) for lang in [args.source_lang, args.target_lang]},
             args.workers,
-            args.nested_line,
+            line_type,
         )
         tgt_dict = src_dict
     else:
@@ -148,7 +153,7 @@ def main(args):
             assert (
                 args.trainpref
             ), "--trainpref must be set if --srcdict is not specified"
-            src_dict = build_dictionary([train_path(args.source_lang)], args.workers, args.nested_line)
+            src_dict = build_dictionary([train_path(args.source_lang)], args.workers, line_type)
         if target:
             if args.tgtdict:
                 tgt_dict = dictionary.Dictionary.load(args.tgtdict)
@@ -157,7 +162,7 @@ def main(args):
                     args.trainpref
                 ), "--trainpref must be set if --tgtdict is not specified"
                 tgt_dict = build_dictionary(
-                    [train_path(args.target_lang)], args.workers, args.nested_line
+                    [train_path(args.target_lang)], args.workers, line_type
                 )
 
     src_dict.finalize(
@@ -315,19 +320,20 @@ def main(args):
 
 
 def build_and_save_dictionary(
-    train_path, output_path, num_workers, freq_threshold, max_words, is_nested_line=False
+    train_path, output_path, num_workers, freq_threshold, max_words, line_type=0
 ):
-    dict = build_dictionary([train_path], num_workers, is_nested_line)
+    dict = build_dictionary([train_path], num_workers, line_type)
     dict.finalize(threshold=freq_threshold, nwords=max_words)
     dict_path = os.path.join(output_path, "dict.txt")
     dict.save(dict_path)
     return dict_path
 
 
-def build_dictionary(filenames, workers, is_nested_line=False):
+def build_dictionary(filenames, workers, line_type=0):
     d = dictionary.Dictionary()
+    tokenizer_func = tokenize_line if line_type == 0 else tokenize_leaf_line if line_type == 1 else tokenize_path_line
     for filename in filenames:
-        Tokenizer.add_file_to_dictionary(filename, d, tokenize_nested_line if is_nested_line else tokenize_line, workers)
+        Tokenizer.add_file_to_dictionary(filename, d, tokenizer_func, workers)
     return d
 
 

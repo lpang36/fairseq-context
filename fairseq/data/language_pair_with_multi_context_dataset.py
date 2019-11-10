@@ -28,17 +28,20 @@ def collate(
 
     id = torch.LongTensor([s['id'] for s in samples])
     src_tokens = merge('source', left_pad=left_pad_source)
-    leaf_tokens = merge('leaf', left_pad=left_pad_source)
+    start_leaf_tokens = merge('start_leaf', left_pad=left_pad_source)
+    end_leaf_tokens = merge('end_leaf', left_pad=left_pad_source)
     path_tokens = merge('path', left_pad=left_pad_source)
 
     # sort by descending source length
     src_lengths = torch.LongTensor([s['source'].numel() for s in samples])
-    leaf_lengths = torch.LongTensor([s['leaf'].numel() for s in samples])
+    start_leaf_lengths = torch.LongTensor([s['start_leaf'].numel() for s in samples])
+    end_leaf_lengths = torch.LongTensor([s['end_leaf'].numel() for s in samples])
     path_lengths = torch.LongTensor([s['path'].numel() for s in samples])
     src_lengths, sort_order = src_lengths.sort(descending=True)
     id = id.index_select(0, sort_order)
     src_tokens = src_tokens.index_select(0, sort_order)
-    leaf_tokens = leaf_tokens.index_select(0, sort_order)
+    start_leaf_tokens = start_leaf_tokens.index_select(0, sort_order)
+    end_leaf_tokens = end_leaf_tokens.index_select(0, sort_order)
     path_tokens = path_tokens.index_select(0, sort_order)
 
     prev_output_tokens = None
@@ -66,8 +69,10 @@ def collate(
         'net_input': {
             'src_tokens': src_tokens,
             'src_lengths': src_lengths,
-            'leaf_tokens': leaf_tokens,
-            'leaf_lengths': leaf_lengths,
+            'start_leaf_tokens': start_leaf_tokens,
+            'start_leaf_lengths': start_leaf_lengths,
+            'end_leaf_tokens': end_leaf_tokens,
+            'end_leaf_lengths': end_leaf_lengths,
             'path_tokens': ctx_tokens,
             'path_lengths': ctx_lengths,
         },
@@ -144,6 +149,12 @@ class LanguagePairWithMultiContextDataset(LanguagePairDataset):
         leaf_item = self.leaf[index]
         path_item = self.path[index]
 
+        start_leaf_item, end_leaf_item = leaf_item, leaf_item
+        for i, token in enumerate(leaf_item):
+            if token == self.leaf_dict.leaf():
+                start_leaf_item = leaf_item[:i]
+                end_leaf_item = leaf_item[(i+1):]
+
         # Append EOS to end of tgt sentence if it does not have an EOS and remove
         # EOS from end of src sentence if it exists. This is useful when we use
         # use existing datasets for opposite directions i.e., when we want to
@@ -162,7 +173,8 @@ class LanguagePairWithMultiContextDataset(LanguagePairDataset):
             'id': index,
             'source': src_item,
             'target': tgt_item,
-            'leaf': leaf_item,
+            'start_leaf': start_leaf_item,
+            'end_leaf': end_leaf_item,
             'path': path_item,
         }
 

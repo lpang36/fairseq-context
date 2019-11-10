@@ -6,9 +6,9 @@ train test val
 ->
 
 train test val
-trg (space delim) src (space delim) leaf (<path> delim (space delim)) path (<path> delim (space delim))
+trg (space delim) src (space delim) leaf (<leaf> delim (<path> delim (space delim))) path (<path> delim (space delim))
 
--modify fairseq/tokenizer.py to add a tokenizer which splits by both space and |
+-modify fairseq/tokenizer.py to add a tokenizer which splits by both space, ,, and |
 -in preprocess.py use --joined-dictionary for src and trg, add an option to use the new tokenizer and use --only-source to process leaf and path
 
 ->

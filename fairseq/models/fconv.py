@@ -531,9 +531,9 @@ class FConvMultiContextEncoder(FairseqEncoder):
         self.input_encoder.num_attention_layers = num_attention_layers
         self.context_encoder.num_attention_layers = num_attention_layers
 
-    def forward(self, src_tokens, src_lengths, leaf_tokens, leaf_lengths, path_tokens, path_lengths):
+    def forward(self, src_tokens, src_lengths, start_leaf_tokens, start_leaf_lengths, end_leaf_tokens, end_leaf_lengths, path_tokens, path_lengths):
         src_output = self.input_encoder.forward(src_tokens,src_lengths)
-        ctx_output = self.context_encoder.forward(leaf_tokens,leaf_lengths,path_tokens,path_lengths)
+        ctx_output = self.context_encoder.forward(start_leaf_tokens,start_leaf_lengths,end_leaf_tokens,end_leaf_lengths,path_tokens,path_lengths)
         if src_output['encoder_padding_mask'] is None or ctx_output['encoder_padding_mask'] is None:
             encoder_padding_mask = None
         else:
@@ -567,7 +567,7 @@ class Code2SeqEncoder(FairseqEncoder):
         super(Code2SeqEncoder, self).__init__(leaf_dictionary)
         self.leaf_dictionary, self.path_dictionary = leaf_dictionary, path_dictionary
 
-    def forward(self, leaf_tokens, leaf_lengths, path_tokens, path_lengths):
+    def forward(self, start_leaf_tokens, start_leaf_lengths, end_leaf_tokens, end_leaf_lengths, path_tokens, path_lengths):
         raise NotImplementedError
 
     def reorder_encoder_out(self, encoder_out, new_order):

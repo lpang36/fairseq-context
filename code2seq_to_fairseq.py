@@ -21,11 +21,11 @@ if __name__ == '__main__':
                         leaves = []
                         paths = []
                         for path in line[2:]:
-                            path = path.strip().split('|')
-                            if len(path) < 3:
+                            path = path.strip().split(',')
+                            if len(path) != 3:
                                 continue
-                            leaves.append('|'.join([path[0], path[-1]]))
-                            paths.append('|'.join(path[1:-1]))
+                            leaves.append(','.join([path[0], path[2]]))
+                            paths.append(path[1])
                         src_file.write(src + '\n')
                         trg_file.write(trg + '\n')
                         leaf_file.write(' '.join(leaves) + '\n')

@@ -18,7 +18,20 @@ def tokenize_line(line):
     line = line.strip()
     return line.split()
 
-def tokenize_nested_line(line):
+def tokenize_leaf_line(line):
+    line = SPACE_NORMALIZER.sub(" ", line)
+    line = line.strip().split()
+    start_leaves = []
+    end_leaves = []
+    for item in line:
+        start, end = item.split(',')
+        start_leaves.append(start.split('|'))
+        end_leaves.append(end.split('|'))
+    start_leaves = ' <path> '.join(' '.join(item) for item in start_leaves)
+    end_leaves = ' <path> '.join(' '.join(item) for item in end_leaves)
+    return (start_leaves + ' <leaf> ' + end_leaves).split()
+
+def tokenize_path_line(line):
     line = SPACE_NORMALIZER.sub(" ", line)
     line = line.strip()
     joined = ' <path> '.join([' '.join(item.split('|')) for item in line])
