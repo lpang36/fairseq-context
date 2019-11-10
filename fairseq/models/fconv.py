@@ -18,8 +18,8 @@ from fairseq.modules import (
 
 from . import (
     FairseqEncoder, FairseqIncrementalDecoder, FairseqModel,
-    FairseqLanguageModel, FairseqContextModel, register_model,
-    register_model_architecture,
+    FairseqLanguageModel, FairseqContextModel, FairseqMultiContextModel,
+    register_model, register_model_architecture,
 )
 
 
@@ -1011,4 +1011,8 @@ def fconv_wmt_en_fr(args):
 
 @register_model_architecture('fconv_context','fconv_context')
 def base_fconv_context(args):
+    base_architecture(args)
+
+@register_model_architecture('fconv_multicontext','fconv_multicontext')
+def base_fconv_multicontext(args):
     base_architecture(args)

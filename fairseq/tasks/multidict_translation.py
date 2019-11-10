@@ -13,7 +13,7 @@ from fairseq import options
 from fairseq.data import (
     data_utils, Dictionary, LanguagePairDataset, ConcatDataset,
     IndexedRawTextDataset, IndexedCachedDataset, IndexedDataset,
-    LanguagePairWithContextDataset
+    LanguagePairWithMultiContextDataset
 )
 
 from . import FairseqTask, register_task
