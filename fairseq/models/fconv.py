@@ -245,7 +245,7 @@ class FConvMultiContextModel(FairseqMultiContextModel):
             dropout=args.dropout,
             max_positions=args.max_target_positions,
             share_embed=args.share_input_output_embed,
-            use_context=True
+            use_context=False
         )
         return FConvMultiContextModel(encoder, decoder)
 
@@ -562,13 +562,55 @@ class FConvMultiContextEncoder(FairseqEncoder):
 class Code2SeqEncoder(FairseqEncoder):
     def __init__(
         self, leaf_dictionary, path_dictionary, embed_dim=512, embed_dict=None,
-        max_positions=1024, convolutions=((512, 3),) * 20, dropout=0.1, left_pad=True,
+        max_positions=1024, dropout=0.1, left_pad=True,
     ):
         super(Code2SeqEncoder, self).__init__(leaf_dictionary)
         self.leaf_dictionary, self.path_dictionary = leaf_dictionary, path_dictionary
+        self.path_bilstm = nn.LSTM(embed_dim, embed_dim, batch_first=True, dropout=dropout, bidirectional=True)
+        self.leaf_embedding = Embedding(len(leaf_dictionary), embed_dim, leaf_dictionary.pad())
+        self.path_embedding = Embedding(len(path_dictionary), embed_dim, path_dictionary.pad())
+        self.fc = Linear(4 * embed_dim, embed_dim)
 
     def forward(self, start_leaf_tokens, start_leaf_lengths, end_leaf_tokens, end_leaf_lengths, path_tokens, path_lengths):
-        raise NotImplementedError
+        start_leaf_inds = torch.nonzero(start_leaf_tokens == self.leaf_dictionary.path())
+        end_leaf_inds = torch.nonzero(end_leaf_tokens == self.leaf_dictionary.path())
+        path_inds = torch.nonzero(path_tokens == self.path_dictionary.path())
+
+        assert start_leaf_inds[:, 0] == end_leaf_inds[:, 0] == path_inds[:, 0]
+
+        start_leaf_seqs, _, start_leaf_mask = self.split_seq(start_leaf_tokens, start_leaf_lengths, start_leaf_inds)
+        end_leaf_seqs, _, end_leaf_mask = self.split_seq(end_leaf_tokens, end_leaf_lengths, end_leaf_inds)
+        path_seqs, path_lens, _ = self.split_seq(path_tokens, path_lengths, path_inds)
+
+        start_leaf_sums = torch.sum(self.leaf_embedding(start_leaf_seqs) * start_leaf_mask, dim=1)
+        end_leaf_sums = torch.sum(self.leaf_embedding(end_leaf_seqs) * end_leaf_mask, dim=1)
+        path_seqs = self.path_embedding(path_seqs)
+
+        packed_paths = nn.utils.rnn.pack_padded_sequence(path_seqs, path_lens, batch_first=True, enforce_sorted=False)
+        _, (h_n, _) = self.path_bilstm(packed_paths)
+        h_n = h_n.view(path_seqs.size()[0], 2 * embed_dim)
+
+        z = nn.Tanh(self.fc(torch.cat((h_n, start_leaf_sums, end_leaf_sums), dim=1)))
+        output_sums = []
+        for i in range(start_leaf_tokens.size()[0]):
+            inds = start_leaf_inds[:, 0] == i
+            output_sums.append(torch.sum(z[inds, :]) / torch.sum(inds))
+        return {
+            'encoder_out': torch.cat(output_sums),
+            'encoder_padding_mask': None,
+        }
+
+    def split_seq(self, tokens, lengths, splits):
+        seqs = []
+        seq_lengths = []
+        for i in range(tokens.size()[0]):
+            subsplit = torch.cat((torch.tensor([[-1]]), torch.splits[splits == i]][:, 1], torch.tensor([[lengths[i]])))
+            split_lengths = subsplit[1:, 0] - subsplit[:-1, 0] - 1
+            seqs.extend([tokens[i].narrow(1, int(start) + 1, int(length)) for start, length in zip(subsplit[:-1], split_lengths)])
+            seq_lengths.append(split_lengths)
+        seq_lengths = torch.cat(seq_lengths)
+        padded = nn.utils.rnn.pad_sequence(seqs, batch_first=True, padding_value=self.leaf_dictionary.pad())
+        return (padded, seq_lengths, padded == self.leaf_dictionary.pad())
 
     def reorder_encoder_out(self, encoder_out, new_order):
         if encoder_out['encoder_out'] is not None:

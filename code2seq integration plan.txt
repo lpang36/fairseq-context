@@ -30,3 +30,5 @@ TODO:
 -figure out reason why samples are sorted by descending source length in collate function
 -figure out if some additional connection is needed between task/dataset and model to adjust forward args
 -required tensor format for inputting paths
+-how to merge inputs from two encoders
+-where to add dropout
