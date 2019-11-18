@@ -151,8 +151,8 @@ class MultidictTranslationTask(FairseqTask):
 
                 src_datasets.append(indexed_dataset(prefix + src, self.src_dict))
                 tgt_datasets.append(indexed_dataset(prefix + tgt, self.tgt_dict))
-                leaf_datasets.append(indexed_dataset(os.path.join(data_path, '%s.%s-%s.%s' % (split_k, self.leaf_lang, 'None', self.leaf_lang)), self.leaf_dict)
-                path_datasets.append(indexed_dataset(os.path.join(data_path, '%s.%s-%s.%s' % (split_k, self.path_lang, 'None', self.path_lang)), self.path_dict)
+                leaf_datasets.append(indexed_dataset(os.path.join(data_path, '%s.%s-%s.%s' % (split_k, self.leaf_lang, 'None', self.leaf_lang)), self.leaf_dict))
+                path_datasets.append(indexed_dataset(os.path.join(data_path, '%s.%s-%s.%s' % (split_k, self.path_lang, 'None', self.path_lang)), self.path_dict))
 
                 print('| {} {} {} examples'.format(data_path, split_k, len(src_datasets[-1])))
 

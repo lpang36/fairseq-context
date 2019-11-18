@@ -604,7 +604,7 @@ class Code2SeqEncoder(FairseqEncoder):
         seqs = []
         seq_lengths = []
         for i in range(tokens.size()[0]):
-            subsplit = torch.cat((torch.tensor([[-1]]), torch.splits[splits == i]][:, 1], torch.tensor([[lengths[i]])))
+            subsplit = torch.cat((torch.tensor([[-1]]), torch.splits[splits == i][:, 1], torch.tensor([[lengths[i]]])))
             split_lengths = subsplit[1:, 0] - subsplit[:-1, 0] - 1
             seqs.extend([tokens[i].narrow(1, int(start) + 1, int(length)) for start, length in zip(subsplit[:-1], split_lengths)])
             seq_lengths.append(split_lengths)

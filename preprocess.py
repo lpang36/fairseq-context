@@ -119,8 +119,7 @@ def main(args):
     print(args)
     os.makedirs(args.destdir, exist_ok=True)
     target = not args.only_source
-
-    line_type = 2 if args.path_line else 1 if args.leaf_line else 0
+    tokenizer_func = tokenize_path_line if args.path_line else tokenize_leaf_line if args.leaf_line else tokenize_line
 
     def train_path(lang):
         return "{}{}".format(args.trainpref, ("." + lang) if lang else "")
@@ -143,7 +142,7 @@ def main(args):
         src_dict = build_dictionary(
             {train_path(lang) for lang in [args.source_lang, args.target_lang]},
             args.workers,
-            line_type,
+            tokenizer_func,
         )
         tgt_dict = src_dict
     else:
@@ -153,7 +152,7 @@ def main(args):
             assert (
                 args.trainpref
             ), "--trainpref must be set if --srcdict is not specified"
-            src_dict = build_dictionary([train_path(args.source_lang)], args.workers, line_type)
+            src_dict = build_dictionary([train_path(args.source_lang)], args.workers, tokenizer_func)
         if target:
             if args.tgtdict:
                 tgt_dict = dictionary.Dictionary.load(args.tgtdict)
@@ -162,7 +161,7 @@ def main(args):
                     args.trainpref
                 ), "--trainpref must be set if --tgtdict is not specified"
                 tgt_dict = build_dictionary(
-                    [train_path(args.target_lang)], args.workers, line_type
+                    [train_path(args.target_lang)], args.workers, tokenizer_func
                 )
 
     src_dict.finalize(
@@ -210,6 +209,7 @@ def main(args):
                         lang,
                         offsets[worker_id],
                         offsets[worker_id + 1],
+                        tokenizer_func,
                     ),
                     callback=merge_result,
                 )
@@ -220,7 +220,7 @@ def main(args):
         )
         merge_result(
             Tokenizer.binarize(
-                input_file, dict, lambda t: ds.add_item(t), offset=0, end=offsets[1]
+                input_file, dict, lambda t: ds.add_item(t), tokenize=tokenizer_func, offset=0, end=offsets[1]
             )
         )
         if num_workers > 1:
@@ -320,24 +320,23 @@ def main(args):
 
 
 def build_and_save_dictionary(
-    train_path, output_path, num_workers, freq_threshold, max_words, line_type=0
+    train_path, output_path, num_workers, freq_threshold, max_words, tokenizer_func
 ):
-    dict = build_dictionary([train_path], num_workers, line_type)
+    dict = build_dictionary([train_path], num_workers, tokenizer_func)
     dict.finalize(threshold=freq_threshold, nwords=max_words)
     dict_path = os.path.join(output_path, "dict.txt")
     dict.save(dict_path)
     return dict_path
 
 
-def build_dictionary(filenames, workers, line_type=0):
+def build_dictionary(filenames, workers, tokenizer_func):
     d = dictionary.Dictionary()
-    tokenizer_func = tokenize_line if line_type == 0 else tokenize_leaf_line if line_type == 1 else tokenize_path_line
     for filename in filenames:
         Tokenizer.add_file_to_dictionary(filename, d, tokenizer_func, workers)
     return d
 
 
-def binarize(args, filename, dict, output_prefix, lang, offset, end):
+def binarize(args, filename, dict, output_prefix, lang, offset, end, tokenizer_func):
     ds = indexed_dataset.IndexedDatasetBuilder(
         dataset_dest_file(args, output_prefix, lang, "bin")
     )
@@ -345,7 +344,7 @@ def binarize(args, filename, dict, output_prefix, lang, offset, end):
     def consumer(tensor):
         ds.add_item(tensor)
 
-    res = Tokenizer.binarize(filename, dict, consumer, offset=offset, end=end)
+    res = Tokenizer.binarize(filename, dict, consumer, tokenize=tokenizer_func, offset=offset, end=end)
     ds.finalize(dataset_dest_file(args, output_prefix, lang, "idx"))
     return res
 
