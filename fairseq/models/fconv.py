@@ -520,10 +520,10 @@ class FConvMultiContextEncoder(FairseqEncoder):
             self, dictionary, embed_dim=256, embed_dict=None, max_positions=1024,
             convolutions=((512, 3),) * 20, dropout=0.1, left_pad=True,
     ):
-        super(FConvContextEncoder,self).__init__(dictionary[0])
+        super(FConvMultiContextEncoder,self).__init__(dictionary[0])
         self.source_dictionary, self.leaf_dictionary, self.path_dictionary = dictionary
         self.input_encoder = FConvEncoder(self.source_dictionary,embed_dim,embed_dict,max_positions,convolutions,dropout,left_pad)
-        self.context_encoder = Code2SeqEncoder(self.leaf_dictionary,self.path_dictionary,embed_dim,embed_dict,max_positions,convolutions,dropout,left_pad)
+        self.context_encoder = Code2SeqEncoder(self.leaf_dictionary,self.path_dictionary,embed_dim,embed_dict,max_positions,dropout,left_pad)
 
     def set_num_attention_layers(self, num_attention_layers):
         self.input_encoder.num_attention_layers = num_attention_layers
@@ -534,10 +534,14 @@ class FConvMultiContextEncoder(FairseqEncoder):
         ctx_output = self.context_encoder.forward(start_leaf_tokens,start_leaf_lengths,end_leaf_tokens,end_leaf_lengths,path_tokens,path_lengths)
         batch_size = src_tokens.size()[0]
         embed_dim = src_output['encoder_out'][0].size()[2]
+        if src_output['encoder_padding_mask'] is None:
+            encoder_padding_mask = None
+        else:
+            encoder_padding_mask = torch.cat((src_output['encoder_padding_mask'], torch.zeros(batch_size, 1).cuda().byte()), 1)
         return {
-          'encoder_out': (torch.cat([src_output['encoder_out'][0],ctx_output['encoder_out']].view((batch_size, 1, embed_dim)),1),
-                          torch.cat([src_output['encoder_out'][1],ctx_output['encoder_out']].view((batch_size, 1, embed_dim)),1)),
-          'encoder_padding_mask': torch.cat((src_output['encoder_padding_mask'], torch.ones(batch_size, 1)), 1)
+          'encoder_out': (torch.cat([src_output['encoder_out'][0],ctx_output['encoder_out'].view((batch_size, 1, embed_dim))],1),
+                          torch.cat([src_output['encoder_out'][1],ctx_output['encoder_out'].view((batch_size, 1, embed_dim))],1)),
+          'encoder_padding_mask': encoder_padding_mask
         }
 
     def reorder_encoder_out(self, encoder_out, new_order):
@@ -561,52 +565,69 @@ class Code2SeqEncoder(FairseqEncoder):
         max_positions=1024, dropout=0.1, left_pad=True,
     ):
         super(Code2SeqEncoder, self).__init__(leaf_dictionary)
+        self.embed_dim = embed_dim
         self.leaf_dictionary, self.path_dictionary = leaf_dictionary, path_dictionary
-        self.path_bilstm = nn.LSTM(embed_dim, embed_dim, batch_first=True, dropout=dropout, bidirectional=True)
+        self.path_bilstm = nn.LSTM(embed_dim, embed_dim, batch_first=True, bidirectional=True)
         self.leaf_embedding = Embedding(len(leaf_dictionary), embed_dim, leaf_dictionary.pad())
         self.path_embedding = Embedding(len(path_dictionary), embed_dim, path_dictionary.pad())
         self.fc = Linear(4 * embed_dim, embed_dim)
+        self.tanh = nn.Tanh()
 
     def forward(self, start_leaf_tokens, start_leaf_lengths, end_leaf_tokens, end_leaf_lengths, path_tokens, path_lengths):
         start_leaf_inds = torch.nonzero(start_leaf_tokens == self.leaf_dictionary.path())
         end_leaf_inds = torch.nonzero(end_leaf_tokens == self.leaf_dictionary.path())
         path_inds = torch.nonzero(path_tokens == self.path_dictionary.path())
 
-        assert start_leaf_inds[:, 0] == end_leaf_inds[:, 0] == path_inds[:, 0]
+        if start_leaf_inds.numel() == 0 or end_leaf_inds.numel() == 0 or path_inds.numel() == 0 or \
+                not torch.equal(start_leaf_inds[:, 0], end_leaf_inds[:, 0]) or \
+                not torch.equal(start_leaf_inds[:, 0], path_inds[:, 0]):
+            return {
+                'encoder_out': torch.zeros((start_leaf_tokens.size()[0], self.embed_dim)).cuda(),
+                'encoder_padding_mask': None,
+            }
 
         start_leaf_seqs, _, start_leaf_mask = self.split_seq(start_leaf_tokens, start_leaf_lengths, start_leaf_inds)
         end_leaf_seqs, _, end_leaf_mask = self.split_seq(end_leaf_tokens, end_leaf_lengths, end_leaf_inds)
         path_seqs, path_lens, _ = self.split_seq(path_tokens, path_lengths, path_inds)
 
-        start_leaf_sums = torch.sum(self.leaf_embedding(start_leaf_seqs) * start_leaf_mask, dim=1)
-        end_leaf_sums = torch.sum(self.leaf_embedding(end_leaf_seqs) * end_leaf_mask, dim=1)
+        start_leaf_sums = torch.sum(self.leaf_embedding(start_leaf_seqs).masked_fill_(start_leaf_mask.unsqueeze(2), 0), dim=1)
+        end_leaf_sums = torch.sum(self.leaf_embedding(end_leaf_seqs).masked_fill_(end_leaf_mask.unsqueeze(2), 0), dim=1)
         path_seqs = self.path_embedding(path_seqs)
 
-        packed_paths = nn.utils.rnn.pack_padded_sequence(path_seqs, path_lens, batch_first=True, enforce_sorted=False)
-        _, (h_n, _) = self.path_bilstm(packed_paths)
-        h_n = h_n.view(path_seqs.size()[0], 2 * embed_dim)
+        # sort
+        path_lens, sort_order = path_lens.sort(descending=True)
+        path_seqs = path_seqs.index_select(0, sort_order)
 
-        z = nn.Tanh(self.fc(torch.cat((h_n, start_leaf_sums, end_leaf_sums), dim=1)))
+        packed_paths = nn.utils.rnn.pack_padded_sequence(path_seqs, path_lens, batch_first=True)
+        _, (h_n, _) = self.path_bilstm(packed_paths)
+        h_n = h_n.transpose(1, 0).contiguous().view(path_seqs.size()[0], 2 * self.embed_dim)
+
+        # unsort
+        _, sort_order = sort_order.sort()
+        h_n = h_n.index_select(0, sort_order)
+
+        z = self.tanh(self.fc(torch.cat((h_n, start_leaf_sums, end_leaf_sums), dim=1)))
         output_sums = []
         for i in range(start_leaf_tokens.size()[0]):
-            inds = start_leaf_inds[:, 0] == i
-            output_sums.append(torch.sum(z[inds, :]) / torch.sum(inds))
+            inds = torch.nonzero(start_leaf_inds[:, 0] == i)
+            output_sums.append(torch.sum(z[(inds[0] + i):(inds[-1] + i + 2), :], 0) / (torch.sum(inds) + 1).float())
         return {
-            'encoder_out': torch.cat(output_sums),
+            'encoder_out': torch.cat([s.unsqueeze(0) for s in output_sums]),
             'encoder_padding_mask': None,
         }
 
     def split_seq(self, tokens, lengths, splits):
         seqs = []
         seq_lengths = []
+        max_length = tokens.size()[1]
         for i in range(tokens.size()[0]):
-            subsplit = torch.cat((torch.tensor([[-1]]), torch.splits[splits == i][:, 1], torch.tensor([[lengths[i]]])))
-            split_lengths = subsplit[1:, 0] - subsplit[:-1, 0] - 1
-            seqs.extend([tokens[i].narrow(1, int(start) + 1, int(length)) for start, length in zip(subsplit[:-1], split_lengths)])
+            subsplit = torch.cat((torch.tensor([max_length - lengths[i] - 1]).cuda(), splits[splits[:, 0] == i, 1], torch.tensor([max_length]).cuda()))
+            split_lengths = subsplit[1:] - subsplit[:-1] - 1
+            seqs.extend([tokens[i].narrow(0, int(start) + 1, int(length)) for start, length in zip(subsplit[:-1], split_lengths)])
             seq_lengths.append(split_lengths)
         seq_lengths = torch.cat(seq_lengths)
         padded = nn.utils.rnn.pad_sequence(seqs, batch_first=True, padding_value=self.leaf_dictionary.pad())
-        return (padded, seq_lengths, padded == self.leaf_dictionary.pad())
+        return (padded, seq_lengths, padded != self.leaf_dictionary.pad())
 
     def reorder_encoder_out(self, encoder_out, new_order):
         if encoder_out['encoder_out'] is not None:

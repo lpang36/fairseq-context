@@ -23,9 +23,6 @@ class Dictionary(object):
         self.pad_index = self.add_symbol(pad)
         self.eos_index = self.add_symbol(eos)
         self.unk_index = self.add_symbol(unk)
-        self.ctx_index = self.add_symbol(ctx)
-        self.path_index = self.add_symbol(path)
-        self.leaf_index = self.add_symbol(leaf)
         self.nspecial = len(self.symbols)
 
     def __eq__(self, other):
@@ -157,15 +154,15 @@ class Dictionary(object):
 
     def ctx(self):
         """Helper to get index of ctx symbol"""
-        return self.ctx_index
+        return self.index(self.ctx_word)
 
     def path(self):
         """Helper to get index of path symbol"""
-        return self.path_index
+        return self.index(self.path_word)
 
     def leaf(self):
         """Helper to get index of path symbol"""
-        return self.leaf_index
+        return self.index(self.leaf_word)
 
     @classmethod
     def load(cls, f, ignore_utf_errors=False):

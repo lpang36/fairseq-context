@@ -37,6 +37,7 @@ def collate(
     id = id.index_select(0, sort_order)
     src_tokens = src_tokens.index_select(0, sort_order)
     ctx_tokens = ctx_tokens.index_select(0, sort_order)
+    ctx_lengths = ctx_lengths.index_select(0, sort_order)
 
     prev_output_tokens = None
     target = None

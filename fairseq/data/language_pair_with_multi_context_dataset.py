@@ -41,8 +41,11 @@ def collate(
     id = id.index_select(0, sort_order)
     src_tokens = src_tokens.index_select(0, sort_order)
     start_leaf_tokens = start_leaf_tokens.index_select(0, sort_order)
+    start_leaf_lengths = start_leaf_lengths.index_select(0, sort_order)
     end_leaf_tokens = end_leaf_tokens.index_select(0, sort_order)
+    end_leaf_lengths = end_leaf_lengths.index_select(0, sort_order)
     path_tokens = path_tokens.index_select(0, sort_order)
+    path_lengths = path_lengths.index_select(0, sort_order)
 
     prev_output_tokens = None
     target = None
@@ -73,8 +76,8 @@ def collate(
             'start_leaf_lengths': start_leaf_lengths,
             'end_leaf_tokens': end_leaf_tokens,
             'end_leaf_lengths': end_leaf_lengths,
-            'path_tokens': ctx_tokens,
-            'path_lengths': ctx_lengths,
+            'path_tokens': path_tokens,
+            'path_lengths': path_lengths,
         },
         'target': target,
         'nsentences': samples[0]['source'].size(0),
@@ -123,18 +126,18 @@ class LanguagePairWithMultiContextDataset(LanguagePairDataset):
     def __init__(
         self, src, src_sizes, src_dict,
         tgt=None, tgt_sizes=None, tgt_dict=None,
-        path=None, path_sizes=None, path_dict=None,
         leaf=None, leaf_sizes=None, leaf_dict=None,
+        path=None, path_sizes=None, path_dict=None,
         left_pad_source=True, left_pad_target=False,
         max_source_positions=1024, max_target_positions=1024,
         shuffle=True, input_feeding=True, remove_eos_from_source=False, append_eos_to_target=False,
     ):
         super(LanguagePairWithMultiContextDataset,self).__init__(
-            self, src, src_sizes, src_dict,
-            tgt=None, tgt_sizes=None, tgt_dict=None,
-            left_pad_source=True, left_pad_target=False,
-            max_source_positions=1024, max_target_positions=1024,
-            shuffle=True, input_feeding=True, remove_eos_from_source=False, append_eos_to_target=False, **kwargs
+            src, src_sizes, src_dict,
+            tgt, tgt_sizes, tgt_dict,
+            left_pad_source, left_pad_target,
+            max_source_positions, max_target_positions,
+            shuffle, input_feeding, remove_eos_from_source, append_eos_to_target,
         )
         self.leaf = leaf
         self.path = path
@@ -229,7 +232,8 @@ class LanguagePairWithMultiContextDataset(LanguagePairDataset):
                 'id': i,
                 'source': self.src_dict.dummy_sentence(src_len),
                 'target': self.tgt_dict.dummy_sentence(tgt_len) if self.tgt_dict is not None else None,
-                'leaf': self.leaf_dict.dummy_sentence(src_len),
+                'start_leaf': self.leaf_dict.dummy_sentence(src_len),
+                'end_leaf': self.leaf_dict.dummy_sentence(src_len),
                 'path': self.path_dict.dummy_sentence(src_len),
             }
             for i in range(bsz)
@@ -238,6 +242,8 @@ class LanguagePairWithMultiContextDataset(LanguagePairDataset):
     def prefetch(self, indices):
         self.src.prefetch(indices)
         self.tgt.prefetch(indices)
+        self.leaf.prefetch(indices)
+        self.path.prefetch(indices)
 
     @property
     def supports_prefetch(self):
@@ -246,4 +252,8 @@ class LanguagePairWithMultiContextDataset(LanguagePairDataset):
             and self.src.supports_prefetch
             and hasattr(self.tgt, 'supports_prefetch')
             and self.tgt.supports_prefetch
+            and hasattr(self.leaf, 'supports_prefetch')
+            and self.leaf.supports_prefetch
+            and hasattr(self.path, 'supports_prefetch')
+            and self.path.supports_prefetch
         )

@@ -34,7 +34,7 @@ def tokenize_leaf_line(line):
 def tokenize_path_line(line):
     line = SPACE_NORMALIZER.sub(" ", line)
     line = line.strip()
-    joined = ' <path> '.join([' '.join(item.split('|')) for item in line])
+    joined = ' <path> '.join([' '.join(item.split('|')) for item in line.split()])
     return joined.split()
 
 def safe_readline(f):
