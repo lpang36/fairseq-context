@@ -608,9 +608,15 @@ class Code2SeqEncoder(FairseqEncoder):
 
         z = self.tanh(self.fc(torch.cat((h_n, start_leaf_sums, end_leaf_sums), dim=1)))
         output_sums = []
+        cur_max = -1
         for i in range(start_leaf_tokens.size()[0]):
             inds = torch.nonzero(start_leaf_inds[:, 0] == i)
-            output_sums.append(torch.sum(z[(inds[0] + i):(inds[-1] + i + 2), :], 0) / (torch.sum(inds) + 1).float())
+            if inds.numel() != 0:
+                cur_max = inds[-1] + i + 1
+                output_sums.append(torch.sum(z[(inds[0] + i):(cur_max + 1), :], 0) / (torch.sum(inds) + 1).float())
+            else:
+                cur_max += 1
+                output_sums.append(z[cur_max].squeeze())
         return {
             'encoder_out': torch.cat([s.unsqueeze(0) for s in output_sums]),
             'encoder_padding_mask': None,
@@ -623,7 +629,7 @@ class Code2SeqEncoder(FairseqEncoder):
         for i in range(tokens.size()[0]):
             subsplit = torch.cat((torch.tensor([max_length - lengths[i] - 1]).cuda(), splits[splits[:, 0] == i, 1], torch.tensor([max_length]).cuda()))
             split_lengths = subsplit[1:] - subsplit[:-1] - 1
-            seqs.extend([tokens[i].narrow(0, int(start) + 1, int(length)) for start, length in zip(subsplit[:-1], split_lengths)])
+            seqs.extend([tokens[i, (int(start + 1)):(int(length + start + 1))] for start, length in zip(subsplit[:-1], split_lengths)])
             seq_lengths.append(split_lengths)
         seq_lengths = torch.cat(seq_lengths)
         padded = nn.utils.rnn.pad_sequence(seqs, batch_first=True, padding_value=self.leaf_dictionary.pad())
