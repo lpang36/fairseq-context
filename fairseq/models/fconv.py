@@ -511,7 +511,7 @@ class FConvContextEncoder(FairseqEncoder):
         return encoder_out
 
     def max_positions(self):
-        return max(self.input_encoder.max_positions(),self.context_encoder.max_positions())
+        return min(self.input_encoder.max_positions(),self.context_encoder.max_positions())
 
 
 class FConvMultiContextEncoder(FairseqEncoder):
@@ -556,7 +556,7 @@ class FConvMultiContextEncoder(FairseqEncoder):
         return encoder_out
 
     def max_positions(self):
-        return max(self.input_encoder.max_positions(),self.context_encoder.max_positions())
+        return min(self.input_encoder.max_positions(),self.context_encoder.max_positions())
 
 
 class Code2SeqEncoder(FairseqEncoder):
@@ -785,7 +785,7 @@ class FConvDecoder(FairseqIncrementalDecoder):
 
             # split and transpose encoder outputs
             encoder_a, encoder_b = self._split_encoder_out(encoder_out, incremental_state)
-
+        
         if self.embed_positions is not None:
             pos_embed = self.embed_positions(prev_output_tokens, incremental_state)
         else:
