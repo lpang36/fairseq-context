@@ -13,7 +13,8 @@ import torch
 
 class Dictionary(object):
     """A mapping from symbols to consecutive integers"""
-    def __init__(self, pad='<pad>', eos='</s>', unk='<unk>', ctx='<ctx>', path='<path>', leaf='<leaf>',):
+    def __init__(self, pad='<pad>', eos='</s>', unk='<unk>', ctx='<ctx>', path='<path>', leaf='<leaf>', output_offset=0):
+        self.output_offset = output_offset
         self.unk_word, self.pad_word, self.eos_word, self.ctx_word, self.path_word, self.leaf_word = unk, pad, eos, ctx, path, leaf
         self.symbols = []
         self.count = []
@@ -48,6 +49,8 @@ class Dictionary(object):
 
         Can optionally remove BPE symbols or escape <unk> words.
         """
+        tensor += self.output_offset
+
         if torch.is_tensor(tensor) and tensor.dim() == 2:
             return '\n'.join(self.string(t) for t in tensor)
 
@@ -165,7 +168,7 @@ class Dictionary(object):
         return self.index(self.leaf_word)
 
     @classmethod
-    def load(cls, f, ignore_utf_errors=False):
+    def load(cls, f, ignore_utf_errors=False, output_offset=0):
         """Loads the dictionary from a text file with the format:
 
         ```
@@ -178,17 +181,17 @@ class Dictionary(object):
             try:
                 if not ignore_utf_errors:
                     with open(f, 'r', encoding='utf-8') as fd:
-                        return cls.load(fd)
+                        return cls.load(fd, output_offset=output_offset)
                 else:
                     with open(f, 'r', encoding='utf-8', errors='ignore') as fd:
-                        return cls.load(fd)
+                        return cls.load(fd, output_offset=output_offset)
             except FileNotFoundError as fnfe:
                 raise fnfe
             except Exception:
                 raise Exception("Incorrect encoding detected in {}, please "
                                 "rebuild the dataset".format(f))
 
-        d = cls()
+        d = cls(output_offset=output_offset)
         for line in f.readlines():
             idx = line.rfind(' ')
             word = line[:idx]

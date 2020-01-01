@@ -65,6 +65,7 @@ class MultidictTranslationTask(FairseqTask):
                             help='max number of tokens in the target sequence')
         parser.add_argument('--upsample-primary', default=1, type=int,
                             help='amount to upsample primary dataset')
+        parser.add_argument('--output_offset', default=0, type=int, help='output dictionary hack')
 
     def __init__(self, args, src_dict, tgt_dict, leaf_dict, path_dict):
         super().__init__(args)
@@ -91,7 +92,7 @@ class MultidictTranslationTask(FairseqTask):
 
         # load dictionaries
         src_dict = Dictionary.load(os.path.join(args.data[0], 'dict.{}.txt'.format(args.source_lang)))
-        tgt_dict = Dictionary.load(os.path.join(args.data[0], 'dict.{}.txt'.format(args.target_lang)))
+        tgt_dict = Dictionary.load(os.path.join(args.data[0], 'dict.{}.txt'.format(args.target_lang)), output_offset=args.output_offset)
         leaf_dict = Dictionary.load(os.path.join(args.data[0], 'dict.{}.txt'.format(args.leaf_lang)))
         path_dict = Dictionary.load(os.path.join(args.data[0], 'dict.{}.txt'.format(args.path_lang)))
         assert src_dict.pad() == tgt_dict.pad()

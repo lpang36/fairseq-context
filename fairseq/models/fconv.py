@@ -175,6 +175,7 @@ class FConvContextModel(FairseqContextModel):
             dropout=args.dropout,
             max_positions=args.max_target_positions,
             share_embed=args.share_input_output_embed,
+            use_context=True
         )
         return FConvContextModel(encoder, decoder)
 
@@ -211,6 +212,16 @@ class FConvMultiContextModel(FairseqMultiContextModel):
                             help='share input and output embeddings (requires'
                                  ' --decoder-out-embed-dim and --decoder-embed-dim'
                                  ' to be equal)')
+        parser.add_argument('--adaptive-softmax-cutoff', metavar='EXPR',
+                            help='comma separated list of adaptive softmax cutoff points. '
+                            'Must be used with adaptive_loss criterion')
+        parser.add_argument('--adaptive-softmax-dropout', type=float, metavar='D',
+                            help='sets adaptive softmax dropout for the tail projections')
+        parser.add_argument('--max-leaf-positions', type=int, default=128,
+                            help='max tokens in a single leaf node')
+        parser.add_argument('--max-path-positions', type=int, default=128,
+                            help='max nodes in a single path')
+
 
     @classmethod
     def build_model(cls, args, task):
@@ -233,6 +244,8 @@ class FConvMultiContextModel(FairseqMultiContextModel):
             convolutions=eval(args.encoder_layers),
             dropout=args.dropout,
             max_positions=args.max_source_positions,
+            max_leaf_positions=args.max_leaf_positions,
+            max_path_positions=args.max_path_positions,
         )
         decoder = FConvDecoder(
             dictionary=task.target_dictionary,
@@ -244,6 +257,12 @@ class FConvMultiContextModel(FairseqMultiContextModel):
             dropout=args.dropout,
             max_positions=args.max_target_positions,
             share_embed=args.share_input_output_embed,
+            positional_embeddings=True,
+            adaptive_softmax_cutoff=(
+                options.eval_str_list(args.adaptive_softmax_cutoff, type=int)
+                    if args.criterion == 'adaptive_loss' else None
+            ),
+            adaptive_softmax_dropout=args.adaptive_softmax_dropout,
         )
         return FConvMultiContextModel(encoder, decoder)
 
@@ -475,7 +494,7 @@ class FConvEncoder(FairseqEncoder):
 class FConvContextEncoder(FairseqEncoder):
 
     def __init__(
-            self, dictionary, embed_dim=256, embed_dict=None, max_positions=1024,
+            self, dictionary, embed_dim=512, embed_dict=None, max_positions=1024,
             convolutions=((512, 3),) * 20, dropout=0.1, left_pad=True,
     ):
         super(FConvContextEncoder,self).__init__(dictionary)
@@ -488,14 +507,14 @@ class FConvContextEncoder(FairseqEncoder):
 
     def forward(self, src_tokens, src_lengths, ctx_tokens, ctx_lengths):
         src_output = self.input_encoder.forward(src_tokens,src_lengths)
-        ctx_output = self.context_encoder.forward(ctx_tokens,ctx_lengths)
+        ctx_output = self.context_encoder.forward(src_tokens,src_lengths)
         if src_output['encoder_padding_mask'] is None or ctx_output['encoder_padding_mask'] is None:
             encoder_padding_mask = None
         else:
-            encoder_padding_mask = torch.cat((src_output['encoder_padding_mask'], ctx_output['encoder_padding_mask']), 1)
+            encoder_padding_mask = src_output['encoder_padding_mask']*ctx_output['encoder_padding_mask']
         return {
-          'encoder_out': (torch.cat([src_output['encoder_out'][0],ctx_output['encoder_out'][0]],1),
-                          torch.cat([src_output['encoder_out'][1],ctx_output['encoder_out'][1]],1)),
+          'encoder_out': (torch.cat([src_output['encoder_out'][0],ctx_output['encoder_out'][0]],2),
+                          torch.cat([src_output['encoder_out'][1],ctx_output['encoder_out'][1]],2)),
           'encoder_padding_mask': encoder_padding_mask
         }
 
@@ -518,12 +537,15 @@ class FConvMultiContextEncoder(FairseqEncoder):
 
     def __init__(
             self, dictionary, embed_dim=256, embed_dict=None, max_positions=1024,
+            max_leaf_positions=128, max_path_positions=128,
             convolutions=((512, 3),) * 20, dropout=0.1, left_pad=True,
     ):
         super(FConvMultiContextEncoder,self).__init__(dictionary[0])
         self.source_dictionary, self.leaf_dictionary, self.path_dictionary = dictionary
         self.input_encoder = FConvEncoder(self.source_dictionary,embed_dim,embed_dict,max_positions,convolutions,dropout,left_pad)
-        self.context_encoder = Code2SeqEncoder(self.leaf_dictionary,self.path_dictionary,embed_dim,embed_dict,max_positions,dropout,left_pad)
+        #self.context_encoder = self.input_encoder
+        self.context_encoder = Code2SeqEncoder(self.leaf_dictionary,self.path_dictionary,embed_dim,embed_dict,max_positions,max_leaf_positions,max_path_positions,dropout,left_pad)
+        self.embed_dim = embed_dim
 
     def set_num_attention_layers(self, num_attention_layers):
         self.input_encoder.num_attention_layers = num_attention_layers
@@ -562,7 +584,7 @@ class FConvMultiContextEncoder(FairseqEncoder):
 class Code2SeqEncoder(FairseqEncoder):
     def __init__(
         self, leaf_dictionary, path_dictionary, embed_dim=512, embed_dict=None,
-        max_positions=1024, dropout=0.1, left_pad=True,
+        max_positions=1024, max_leaf_positions=128, max_path_positions=128, dropout=0.1, left_pad=True,
     ):
         super(Code2SeqEncoder, self).__init__(leaf_dictionary)
         self.embed_dim = embed_dim
@@ -572,26 +594,39 @@ class Code2SeqEncoder(FairseqEncoder):
         self.path_embedding = Embedding(len(path_dictionary), embed_dim, path_dictionary.pad())
         self.fc = Linear(4 * embed_dim, embed_dim)
         self.tanh = nn.Tanh()
+        self.max_leaf_positions = max_leaf_positions
+        self.max_path_positions = max_path_positions
 
     def forward(self, start_leaf_tokens, start_leaf_lengths, end_leaf_tokens, end_leaf_lengths, path_tokens, path_lengths):
-        start_leaf_inds = torch.nonzero(start_leaf_tokens == self.leaf_dictionary.path())
+        default_return = {
+            'encoder_out': torch.zeros((start_leaf_tokens.size()[0], self.embed_dim)).cuda(),
+            'encoder_padding_mask': None,
+        }
+        
+        leaf_split_mask = start_leaf_tokens == self.leaf_dictionary.path()
+        split_inds = torch.cat((torch.tensor([0]).cuda(), torch.cumsum(leaf_split_mask.sum(1), 0)), 0).tolist()
+
+        start_leaf_inds = torch.nonzero(leaf_split_mask)
         end_leaf_inds = torch.nonzero(end_leaf_tokens == self.leaf_dictionary.path())
         path_inds = torch.nonzero(path_tokens == self.path_dictionary.path())
 
         if start_leaf_inds.numel() == 0 or end_leaf_inds.numel() == 0 or path_inds.numel() == 0 or \
                 not torch.equal(start_leaf_inds[:, 0], end_leaf_inds[:, 0]) or \
                 not torch.equal(start_leaf_inds[:, 0], path_inds[:, 0]):
-            return {
-                'encoder_out': torch.zeros((start_leaf_tokens.size()[0], self.embed_dim)).cuda(),
-                'encoder_padding_mask': None,
-            }
+            return default_return
 
-        start_leaf_seqs, _, start_leaf_mask = self.split_seq(start_leaf_tokens, start_leaf_lengths, start_leaf_inds)
-        end_leaf_seqs, _, end_leaf_mask = self.split_seq(end_leaf_tokens, end_leaf_lengths, end_leaf_inds)
-        path_seqs, path_lens, _ = self.split_seq(path_tokens, path_lengths, path_inds)
+        start_leaf_seqs, _, start_leaf_mask = self._split_seq(start_leaf_tokens, start_leaf_lengths, start_leaf_inds, split_inds)
+        end_leaf_seqs, _, end_leaf_mask = self._split_seq(end_leaf_tokens, end_leaf_lengths, end_leaf_inds, split_inds)
+        path_seqs, path_lens, _ = self._split_seq(path_tokens, path_lengths, path_inds, split_inds)
+
+        start_leaf_seqs, _, start_leaf_mask = self._truncate_seqs(self.max_leaf_positions, start_leaf_seqs, None, start_leaf_mask)
+        end_leaf_seqs, _, end_leaf_mask = self._truncate_seqs(self.max_leaf_positions, end_leaf_seqs, None, end_leaf_mask)
+        path_seqs, path_lens, _ = self._truncate_seqs(self.max_path_positions, path_seqs, path_lens)
 
         start_leaf_sums = torch.sum(self.leaf_embedding(start_leaf_seqs).masked_fill_(start_leaf_mask.unsqueeze(2), 0), dim=1)
         end_leaf_sums = torch.sum(self.leaf_embedding(end_leaf_seqs).masked_fill_(end_leaf_mask.unsqueeze(2), 0), dim=1)
+        #start_leaf_sums = torch.cat([self.leaf_embedding(seq).sum(0).unsqueeze(0) for seq in start_leaf_seqs], dim=0)
+        #end_leaf_sums = torch.cat([self.leaf_embedding(seq).sum(0).unsqueeze(0) for seq in end_leaf_seqs], dim=0)
         path_seqs = self.path_embedding(path_seqs)
 
         # sort
@@ -607,33 +642,50 @@ class Code2SeqEncoder(FairseqEncoder):
         h_n = h_n.index_select(0, sort_order)
 
         z = self.tanh(self.fc(torch.cat((h_n, start_leaf_sums, end_leaf_sums), dim=1)))
+
         output_sums = []
         cur_max = -1
         for i in range(start_leaf_tokens.size()[0]):
-            inds = torch.nonzero(start_leaf_inds[:, 0] == i)
-            if inds.numel() != 0:
-                cur_max = inds[-1] + i + 1
-                output_sums.append(torch.sum(z[(inds[0] + i):(cur_max + 1), :], 0) / (torch.sum(inds) + 1).float())
+            start, end = split_inds[i], split_inds[i + 1]
+            if start != end:
+                cur_max = end + i
+                output_sums.append(torch.sum(z[(start + i):(cur_max + 1), :], 0) / (end - start))
             else:
                 cur_max += 1
                 output_sums.append(z[cur_max].squeeze())
+
+        encoder_out = torch.cat([s.unsqueeze(0) for s in output_sums])
+
         return {
-            'encoder_out': torch.cat([s.unsqueeze(0) for s in output_sums]),
+            'encoder_out': encoder_out,
             'encoder_padding_mask': None,
         }
 
-    def split_seq(self, tokens, lengths, splits):
+    def _split_seq(self, tokens, lengths, splits, split_inds):
         seqs = []
         seq_lengths = []
         max_length = tokens.size()[1]
         for i in range(tokens.size()[0]):
-            subsplit = torch.cat((torch.tensor([max_length - lengths[i] - 1]).cuda(), splits[splits[:, 0] == i, 1], torch.tensor([max_length]).cuda()))
+            sentence_splits = splits[split_inds[i]:split_inds[i + 1], 1]
+            #subsplit = torch.cat((torch.tensor([max_length - lengths[i] - 1]).cuda(), splits[splits[:, 0] == i, 1], torch.tensor([max_length]).cuda())) + 1
+            subsplit = torch.cat((torch.tensor([max_length - lengths[i] - 1]).cuda(), sentence_splits, torch.tensor([max_length]).cuda())) + 1
             split_lengths = subsplit[1:] - subsplit[:-1] - 1
-            seqs.extend([tokens[i, (int(start + 1)):(int(length + start + 1))] for start, length in zip(subsplit[:-1], split_lengths)])
+            starts, ends = subsplit[:-1].tolist(), (subsplit[:-1] + split_lengths).tolist()
+            seqs.extend(tokens[i, start:end] for start, end in zip(starts, ends))
             seq_lengths.append(split_lengths)
         seq_lengths = torch.cat(seq_lengths)
         padded = nn.utils.rnn.pad_sequence(seqs, batch_first=True, padding_value=self.leaf_dictionary.pad())
         return (padded, seq_lengths, padded != self.leaf_dictionary.pad())
+
+    def _truncate_seqs(self, max_length, seqs, seq_lens=None, seq_masks=None):
+        if seqs.size()[1] <= max_length:
+            return seqs, seq_lens, seq_masks
+        print('Warning: Truncated sequence of shape {}'.format(tuple(seqs.size())))
+        return (
+            seqs[:, :max_length], 
+            None if seq_lens is None else torch.clamp(seq_lens, 0, max_length),
+            None if seq_masks is None else seq_masks[:, :max_length]
+        )
 
     def reorder_encoder_out(self, encoder_out, new_order):
         if encoder_out['encoder_out'] is not None:
@@ -648,19 +700,27 @@ class Code2SeqEncoder(FairseqEncoder):
 
 
 class AttentionLayer(nn.Module):
-    def __init__(self, conv_channels, embed_dim, bmm=None):
+    def __init__(self, conv_channels, embed_dim, bmm=None, use_context=False):
         super().__init__()
         # projects from output of convolution to embedding dimension
         self.in_projection = Linear(conv_channels, embed_dim)
         # projects from embedding dimension to convolution size
         self.out_projection = Linear(embed_dim, conv_channels)
+
+        if use_context:
+            self.double_projection = Linear(embed_dim,2*embed_dim)
+            self.half_projection = Linear(2*embed_dim,embed_dim)
+
         self.bmm = bmm if bmm is not None else torch.bmm
+        self.use_context = use_context
 
     def forward(self, x, target_embedding, encoder_out, encoder_padding_mask):
         residual = x
 
         # attention
         x = (self.in_projection(x) + target_embedding) * math.sqrt(0.5)
+        if self.use_context:
+             x = self.double_projection(x)
         x = self.bmm(x, encoder_out[0])
 
         # don't attend over padding
@@ -688,6 +748,8 @@ class AttentionLayer(nn.Module):
             x = x * (s * s.rsqrt())
 
         # project back
+        if self.use_context:
+            x = self.half_projection(x)
         x = (self.out_projection(x) + residual) * math.sqrt(0.5)
         return x, attn_scores
 
@@ -706,7 +768,7 @@ class FConvDecoder(FairseqIncrementalDecoder):
             max_positions=1024, convolutions=((512, 3),) * 20, attention=True,
             dropout=0.1, share_embed=False, positional_embeddings=True,
             adaptive_softmax_cutoff=None, adaptive_softmax_dropout=0,
-            left_pad=False,
+            left_pad=False, use_context=False,
     ):
         super().__init__(dictionary)
         self.register_buffer('version', torch.Tensor([2]))
@@ -754,7 +816,7 @@ class FConvDecoder(FairseqIncrementalDecoder):
                 LinearizedConv1d(in_channels, out_channels * 2, kernel_size,
                                  padding=(kernel_size - 1), dropout=dropout)
             )
-            self.attention.append(AttentionLayer(out_channels, embed_dim, None)
+            self.attention.append(AttentionLayer(out_channels, embed_dim, None, use_context)
                                   if attention[i] else None)
             self.residuals.append(residual)
             in_channels = out_channels

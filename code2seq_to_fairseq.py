@@ -13,7 +13,7 @@ if __name__ == '__main__':
             with open(os.path.join(args.output_dir, '%s.%s' % (args.split, 'leaf')), 'w') as leaf_file:
                 with open(os.path.join(args.output_dir, '%s.%s' % (args.split, 'path')), 'w') as path_file:
                     for line in open(args.input_file):
-                        line = line.strip().split(' ')
+                        line = line.replace('\n', '').split(' ')
                         if len(line) < 3:
                             continue
                         trg = ' '.join(line[0].split('|'))
