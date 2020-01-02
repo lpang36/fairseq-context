@@ -335,12 +335,12 @@ class SequenceGenerator(object):
                 # finalize all active hypotheses once we hit maxlen
                 # pick the hypothesis with the highest prob of EOS right now
                 torch.sort(
-                    lprobs[:, self.eos],
+                    lprobs[:, :, self.eos],
                     descending=True,
                     out=(eos_scores, eos_bbsz_idx),
                 )
                 num_remaining_sent -= len(finalize_hypos(
-                    step, eos_bbsz_idx, eos_scores))
+                    step, eos_bbsz_idx.squeeze(), eos_scores.squeeze()))
                 assert num_remaining_sent == 0
                 break
 
